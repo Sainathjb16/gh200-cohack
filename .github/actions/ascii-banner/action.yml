@@ -1,0 +1,41 @@
+# ══════════════════════════════════════════════════════════════
+# Custom Composite Action — Topic 27: Creating Custom Actions
+# ══════════════════════════════════════════════════════════════
+name: "🎨 ASCII Banner Generator"
+description: "Generates ASCII art banners using figlet for your workflow steps"
+author: "GH-200 CoHack"
+
+inputs:
+  text:
+    description: "Text to convert to ASCII art"
+    required: true
+    default: "Hello!"
+  font:
+    description: "Figlet font to use (standard, slant, big, digital, banner)"
+    required: false
+    default: "standard"
+
+outputs:
+  banner:
+    description: "The generated ASCII art banner text"
+    value: ${{ steps.generate.outputs.banner }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: 🔧 Install figlet
+      shell: bash
+      run: sudo apt-get install -y figlet -q
+
+    - name: 🎨 Generate ASCII Banner
+      id: generate
+      shell: bash
+      run: |
+        echo "=== ASCII Banner Preview ==="
+        figlet -f "${{ inputs.font }}" "${{ inputs.text }}"
+        echo "==========================="
+        BANNER=$(figlet -f "${{ inputs.font }}" "${{ inputs.text }}")
+        echo "banner<<EOF" >> $GITHUB_OUTPUT
+        echo "$BANNER"     >> $GITHUB_OUTPUT
+        echo "EOF"         >> $GITHUB_OUTPUT
+        echo "✅ Banner generated with font: ${{ inputs.font }}"

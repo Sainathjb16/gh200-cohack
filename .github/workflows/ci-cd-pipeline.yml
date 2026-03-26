@@ -1,0 +1,214 @@
+# ══════════════════════════════════════════════════════════════
+# PROJECT 2: CI/CD Pipeline with Multi-Environment Deployment
+# Skills: event filters, activity types, concurrency, matrix,
+#         needs, if expressions, artifacts, secrets, timeout,
+#         context, REST API, reusable workflows, environments,
+#         workflow_dispatch inputs
+# ══════════════════════════════════════════════════════════════
+name: 🔄 CI/CD Pipeline with Governance
+
+on:
+  push:
+    branches: [main, "feature/**"]
+    paths: ["src/**"]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      deploy_to:
+        description: "Deploy to environment"
+        type: choice
+        options: [staging, production, both]
+        required: true
+        default: staging
+      skip_tests:
+        description: "Skip test suite (emergency deploy only)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  APP_NAME: "cohack-app"
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # ── Job 1: Lint & Validate ────────────────────────────────────
+  lint-and-validate:
+    name: 🔍 Lint & Validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 📋 Show Context Information
+        run: |
+          echo "Event   : ${{ github.event_name }}"
+          echo "Actor   : ${{ github.actor }}"
+          echo "Ref     : ${{ github.ref_name }}"
+          echo "SHA     : ${{ github.sha }}"
+          echo "Runner  : ${{ runner.os }} / ${{ runner.arch }}"
+
+      - name: 🔍 Install & Run Flake8
+        run: |
+          pip install flake8
+          flake8 src/ --max-line-length=100 || echo "⚠️ Linting warnings — check output above"
+
+  # ── Job 2: Test Matrix ────────────────────────────────────────
+  test:
+    name: 🧪 Test — ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    needs: lint-and-validate
+    if: inputs.skip_tests != true
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.11"]
+        exclude:
+          - os: windows-latest
+            python-version: "3.10"
+      fail-fast: false
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: 📦 Install Dependencies
+        run: pip install pytest pytest-cov
+
+      - name: 🧪 Run Tests with Coverage
+        id: run-tests
+        run: |
+          pytest src/ -v --tb=short \
+            --cov=src \
+            --cov-report=term-missing
+
+      - name: 📦 Upload Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: src/
+          retention-days: 5
+
+  # ── Job 3: Build ──────────────────────────────────────────────
+  build:
+    name: 🔨 Build Application
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔨 Create Build Artifact
+        run: |
+          mkdir -p dist
+          echo "App     : $APP_NAME"              > dist/app.txt
+          echo "Version : ${{ github.sha }}"      >> dist/app.txt
+          echo "Branch  : ${{ github.ref_name }}" >> dist/app.txt
+          echo "Built   : $(date)"                >> dist/app.txt
+          echo "Actor   : ${{ github.actor }}"    >> dist/app.txt
+          cat dist/app.txt
+
+      - name: 📦 Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-build-${{ github.sha }}
+          path: dist/
+          retention-days: 30
+
+  # ── Job 4: Deploy to Staging ──────────────────────────────────
+  deploy-staging:
+    name: 🌍 Deploy → Staging
+    runs-on: ubuntu-latest
+    needs: build
+    if: |
+      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+      (github.event_name == 'workflow_dispatch' &&
+       (inputs.deploy_to == 'staging' || inputs.deploy_to == 'both'))
+    environment:
+      name: staging
+      url: https://staging.cohack-app.example.com
+    env:
+      DEPLOY_ENV: staging
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 📥 Download Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app-build-${{ github.sha }}
+
+      - name: 🚀 Deploy to Staging
+        env:
+          DEPLOY_TOKEN: ${{ secrets.STAGING_TOKEN }}
+        run: |
+          echo "🚀 Deploying $APP_NAME to $DEPLOY_ENV..."
+          echo "Build SHA: ${{ github.sha }}"
+          cat app.txt
+          echo "✅ Deployed to $DEPLOY_ENV successfully!"
+
+      - name: 📡 Register Deployment via REST API
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Deployment registered via GitHub REST API"
+          echo "Endpoint: https://api.github.com/repos/$GITHUB_REPOSITORY/deployments"
+
+  # ── Job 5: Deploy to Production ───────────────────────────────
+  deploy-production:
+    name: 🏭 Deploy → Production
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    if: |
+      github.event_name == 'release' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (inputs.deploy_to == 'production' || inputs.deploy_to == 'both'))
+    environment:
+      name: production
+      url: https://cohack-app.example.com
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 📥 Download Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app-build-${{ github.sha }}
+
+      - name: 🏭 Deploy to Production
+        env:
+          DEPLOY_TOKEN: ${{ secrets.PROD_TOKEN }}
+        run: |
+          echo "🏭 Deploying $APP_NAME to PRODUCTION..."
+          cat app.txt
+          echo "✅ Production deployment complete!"
+
+  # ── Job 6: Notify Team ───────────────────────────────────────
+  notify-completion:
+    name: 🔔 Notify Team
+    needs: [deploy-staging, deploy-production]
+    if: always()
+    uses: ./.github/workflows/reusable-notify.yml
+    with:
+      message: "Pipeline finished for ${{ github.repository }} — Run #${{ github.run_number }}"
+      environment: production
+    secrets:
+      NOTIFY_TOKEN: ${{ secrets.GITHUB_TOKEN }}

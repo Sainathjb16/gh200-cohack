@@ -1,0 +1,42 @@
+# ══════════════════════════════════════════════════════════════
+# Reusable Notification Workflow — Topic 26: Reusable Workflows
+# Call this from any workflow using:
+#   uses: ./.github/workflows/reusable-notify.yml
+# ══════════════════════════════════════════════════════════════
+name: 🔔 Reusable Notification Workflow
+
+on:
+  workflow_call:
+    inputs:
+      message:
+        description: "Notification message to display"
+        required: true
+        type: string
+      environment:
+        description: "Target environment"
+        required: false
+        type: string
+        default: staging
+    secrets:
+      NOTIFY_TOKEN:
+        description: "Token for sending notifications"
+        required: false
+
+jobs:
+  notify:
+    name: 📢 Send Notification
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📢 Display Notification
+        run: |
+          echo "╔═══════════════════════════════════╗"
+          echo "║  🔔 NOTIFICATION                  ║"
+          echo "╠═══════════════════════════════════╣"
+          echo "║  ${{ inputs.message }}"
+          echo "╠═══════════════════════════════════╣"
+          echo "║  Environment : ${{ inputs.environment }}"
+          echo "║  Triggered by: ${{ github.actor }}"
+          echo "║  Repo        : ${{ github.repository }}"
+          echo "║  Run #       : ${{ github.run_number }}"
+          echo "╚═══════════════════════════════════╝"
+          echo "Secret provided: ${{ secrets.NOTIFY_TOKEN != '' }}"

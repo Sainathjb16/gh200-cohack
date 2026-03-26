@@ -1,0 +1,252 @@
+# ╔══════════════════════════════════════════════════════════════╗
+# ║   GH-200 CoHack Journey — ONE evolving workflow file        ║
+# ║   Covers all 26 topics across 13 progressive enhancements   ║
+# ╚══════════════════════════════════════════════════════════════╝
+
+# ── ENHANCEMENTS 8 & 13: Rich triggers (Topics 13, 20, 21, 24) ──
+name: 🚀 CoHack Journey
+
+on:
+  push:
+    branches: [main, "feature/**"]
+    paths: ["src/**", "scripts/**"]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, labeled]
+  schedule:
+    - cron: "0 9 * * 1"           # Every Monday at 9 AM UTC
+  workflow_dispatch:               # Topic 24 — manual trigger
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: staging
+        type: choice
+        options: [staging, production]
+      run_tests:
+        description: "Run test suite?"
+        required: false
+        type: boolean
+        default: true
+
+# ── ENHANCEMENT 9: Concurrency (Topic 14) ──
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# ── ENHANCEMENT 7: Workflow-level variables (Topic 11) ──
+env:
+  WORKSHOP_NAME: "GH-200 CoHack"
+  TRAINER: "Himanshu Kumar"
+
+# ════════════════════════════════════════════════════════════════
+jobs:
+
+  # ── ENHANCEMENTS 1-7: setup job (Topics 1-12) ──────────────────
+  setup:
+    name: 🛠️ Setup, ASCII Art & Variables
+    runs-on: ubuntu-latest
+    timeout-minutes: 10             # Topic 15 — job timeout
+
+    env:
+      JOB_ENV: "Setup Phase"        # Topic 11 — job-level variable
+
+    steps:
+      # Enhancement 1 — Topic 1 & 2: Hello World
+      - name: 👋 Say Hello (Enhancement 1)
+        run: echo "Hello from $WORKSHOP_NAME! Trainer → $TRAINER 🚀"
+
+      # Enhancement 2 — Topic 3 & 4: Core Components + Checkout
+      - name: 📥 Checkout Repository (Enhancement 2)
+        uses: actions/checkout@v4
+
+      - name: 📂 List Workspace Files
+        run: ls -la
+
+      # Enhancement 3 — Topic 5 & 6: Multi-line + ASCII Art
+      - name: 🎨 Generate ASCII Artwork (Enhancement 3)
+        run: |
+          sudo apt-get install -y figlet
+          figlet "GH-200 CoHack"
+          echo "----------------------------"
+          figlet -f slant "GitHub Actions"
+          echo "✅ ASCII art generated using figlet (third-party library)!"
+
+      # Enhancement 4 — Topic 7: Execute Shell Script
+      - name: 🖥️ Run Greeting Shell Script (Enhancement 4)
+        run: |
+          chmod +x scripts/greet.sh
+          ./scripts/greet.sh
+
+      # Enhancement 7 — Topic 11 & 12: Variables & Secrets
+      - name: 🔍 Show Variables at All Levels (Enhancement 7)
+        env:
+          STEP_VAR: "I am a step-level variable"  # Step-level
+        run: |
+          echo "=== Variable Levels Demo ==="
+          echo "Workflow-level : WORKSHOP_NAME = $WORKSHOP_NAME"
+          echo "Job-level      : JOB_ENV       = $JOB_ENV"
+          echo "Step-level     : STEP_VAR      = $STEP_VAR"
+          echo "Default GA var : GITHUB_ACTOR  = $GITHUB_ACTOR"
+          echo "Default GA var : RUNNER_OS     = $RUNNER_OS"
+
+      - name: 🔐 Use Repository Secret (Topic 12)
+        env:
+          MY_SECRET: ${{ secrets.MY_API_KEY }}
+        run: |
+          echo "Secret configured: ${{ secrets.MY_API_KEY != '' }}"
+          echo "Value is masked → try: echo $MY_SECRET"
+
+      # Enhancement 12 — Topic 24: workflow_dispatch inputs
+      - name: 🎛️ Use Dispatch Inputs (Topic 24)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "Environment : ${{ inputs.environment }}"
+          echo "Run Tests   : ${{ inputs.run_tests }}"
+
+      # Enhancement 13 — Topic 22 & 23: Debug + REST API
+      - name: 🐛 Debug Information (Topic 22)
+        run: |
+          echo "RUNNER_DEBUG  = $RUNNER_DEBUG"
+          echo "Logs URL      = https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/logs"
+
+      - name: 📡 Query REST API for Run Info (Topic 23)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -s \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps({k:d[k] for k in ['id','status','conclusion','run_number'] if k in d}, indent=2))"
+
+  # ── ENHANCEMENTS 5 & 10: build job (Topics 8, 9, 10) ──────────
+  build:
+    name: 🔨 Build Application
+    runs-on: ubuntu-latest
+    needs: setup                    # Topic 9 — sequential with needs
+    timeout-minutes: 10
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔨 Create Build Report
+        run: |
+          mkdir -p build-output
+          echo "=== Build Report ===" > build-output/build-report.txt
+          echo "Workshop : $WORKSHOP_NAME" >> build-output/build-report.txt
+          echo "Commit   : $GITHUB_SHA"   >> build-output/build-report.txt
+          echo "Branch   : $GITHUB_REF_NAME" >> build-output/build-report.txt
+          echo "Built at : $(date)"       >> build-output/build-report.txt
+          cat build-output/build-report.txt
+
+      # Enhancement 6 — Topic 10: Upload Artifact
+      - name: 📦 Upload Build Artifact (Topic 10)
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-report
+          path: build-output/
+          retention-days: 5
+
+  # ── ENHANCEMENTS 6 & 10: test job (Topics 8, 9, 10, 16, 17) ───
+  test:
+    name: 🧪 Test — ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    needs: build                    # Topic 9 — sequential
+
+    # Enhancement 10 — Topic 16 & 17: Matrix Strategy
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.11"]
+        exclude:
+          - os: windows-latest
+            python-version: "3.10"
+        include:
+          - os: ubuntu-latest
+            python-version: "3.11"
+            experimental: true
+      fail-fast: false
+      max-parallel: 3
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 📥 Download Build Artifact (Topic 10)
+        uses: actions/download-artifact@v4
+        with:
+          name: build-report
+
+      - name: 🔍 Inspect Downloaded Artifact
+        run: cat build-report.txt
+
+      - name: 🐍 Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: 📦 Install Dependencies
+        run: pip install pytest
+
+      - name: 🧪 Run Tests
+        timeout-minutes: 5          # Topic 15 — step timeout
+        run: pytest src/ -v
+
+      - name: 📦 Upload Test Results
+        uses: actions/upload-artifact@v4
+        if: always()               # Topic 19 — if always()
+        with:
+          name: test-results-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: src/
+          retention-days: 3
+
+  # ── Enhancement 11 & 13: deploy job (Topics 18, 19) ───────────
+  deploy:
+    name: 🚀 Deploy to ${{ inputs.environment || 'staging' }}
+    runs-on: ubuntu-latest
+    needs: test
+
+    # Topic 19 — if expression: only deploy on push to main
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      # Enhancement 11 — Topic 18: Workflow Context
+      - name: 📋 Show Workflow Context (Topic 18)
+        run: |
+          echo "=== GitHub Context ==="
+          echo "Event      : ${{ github.event_name }}"
+          echo "Actor      : ${{ github.actor }}"
+          echo "Branch     : ${{ github.ref_name }}"
+          echo "SHA        : ${{ github.sha }}"
+          echo "Run Number : ${{ github.run_number }}"
+          echo "=== Runner Context ==="
+          echo "OS         : ${{ runner.os }}"
+          echo "Arch       : ${{ runner.arch }}"
+          echo "Temp       : ${{ runner.temp }}"
+
+      # Topic 19 — if conditions on steps
+      - name: ✅ Deploy Step (runs on success)
+        if: success()
+        run: echo "🚀 Deploying to ${{ inputs.environment || 'staging' }}!"
+
+      - name: 🚨 Notify on Failure
+        if: failure()
+        run: echo "❌ Deploy failed! Check the logs."
+
+      - name: 🧹 Always Cleanup
+        if: always()
+        run: echo "🧹 Cleanup complete — always runs!"
+
+  # ── Enhancement 13: Reusable Workflow call (Topic 26) ──────────
+  notify-team:
+    name: 🔔 Notify Team
+    needs: deploy
+    if: always()
+    uses: ./.github/workflows/reusable-notify.yml
+    with:
+      message: "CoHack Journey run #${{ github.run_number }} finished!"
+      environment: ${{ inputs.environment || 'staging' }}
+    secrets:
+      NOTIFY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
